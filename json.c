@@ -1,24 +1,53 @@
-#include <stdio.h>
-#include <stdarg.h>
 #include <assert.h>
-#include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-struct json_value {
-	enum json_value_type {
-		json_string,
-		json_number
-	} type;
-	union {
-		const char *string;
-		int number;
-	};
-};
+#include "json.h"
 
-struct json_parse_result {
-	struct json_value value;
-	char *error;
-};
+static char *json_sprintf(char *fmt, ...)
+{
+	char *s = NULL;
+	va_list vl;
+
+	va_start(vl);
+	int needed = vsnprintf(s, 0, fmt, vl) + 1;
+	s = malloc(needed);
+	vsnprintf(s, needed, fmt, vl);
+	va_end(vl);
+
+	return s;
+}
+
+char *json_value_stringify(struct json_value v)
+{
+	switch (v.type) {
+	case json_number:
+		return json_sprintf("%i", v.number);
+	case json_string:
+		return json_sprintf("\"%s\"", v.string);
+	default:
+		assert(false);
+	}
+}
+
+bool json_values_equal(struct json_value a, struct json_value b)
+{
+	if (a.type != b.type) {
+		return false;
+	}
+
+	switch (a.type) {
+	case json_number:
+		return a.number == b.number;
+	case json_string:
+		return a.string == b.string || !strcmp(a.string, b.string);
+	default:
+		assert(false);
+	}
+}
 
 static struct json_parse_result error(char *fmt, ...)
 {
@@ -35,14 +64,33 @@ static struct json_parse_result error(char *fmt, ...)
 	return result;
 }
 
+struct json_value json_value_number(int n)
+{
+	return (struct json_value) {
+		.type = json_number,
+		.number = n
+	};
+}
+
+struct json_value json_value_string(const char *s)
+{
+	return (struct json_value) {
+		.type = json_string,
+		.string = s
+	};
+}
+
 struct json_parse_result json_parse(const char *s)
 {
+	struct json_value result;
+	const char *p;
+	int len, n;
 	enum {
 		state_start,
 		state_number,
+		state_string,
 		state_end
 	} state;
-	int number = 0;
 
 	state = state_start;
 
@@ -56,24 +104,45 @@ struct json_parse_result json_parse(const char *s)
 
 			if (isdigit(*s)) {
 				state = state_number;
+				n = 0;
+				continue;
+			}
+
+			if (*s == '"') {
+				len = 0;
+				p = s++;
+				state = state_string;
 				continue;
 			}
 
 			return error("Illegal character: '%c'", *s);
 
-			break;
 		case state_number:
 			if (!isdigit(*s)) {
+				state = state_end;
+				result = json_value_number(n);
+				continue;
+			}
+
+			n *= 10;
+			n += (*s++ - '0');
+
+			break;
+
+		case state_string:
+			if (*s++ == '"') {
+				result = json_value_string(strndup(p, len));
 				state = state_end;
 				continue;
 			}
 
-			number *= 10;
-			number += (*s++ - '0');
+			len++;
+			
 			break;
+
 		case state_end:
 			if (*s == '\0') {
-				goto done;
+				return (struct json_parse_result) { .value = result };
 			}
 			
 			if (isspace(*s)) {
@@ -82,37 +151,9 @@ struct json_parse_result json_parse(const char *s)
 			}
 
 			return error("Illegal character: '%c'", *s);
-			
-			break;
+
 		default:
 			assert(false);
 		}
 	}
-
-done:
-	return (struct json_parse_result) {
-		.value = (struct json_value) {
-			.type = json_number,
-			.number = number
-		},
-	};
-}
-
-int main(void) {
-	struct json_parse_result result;
-	struct json_value value;
-	
-	result = json_parse("  \t\n");
-	if (result.error != NULL) {
-		printf("error: %s", result.error);
-		return 1;
-	}
-
-	value = result.value;
-	if (value.type != json_number) {
-		printf("Wanted json type of number, got %i", value.type);
-		return 1;
-	}
-
-	printf("json value is %i", value.number);
 }
