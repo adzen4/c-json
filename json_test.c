@@ -1,111 +1,117 @@
-#include <stdarg.h>
-#include <stdlib.h>
+#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "json.h"
 
-static void test_json_basics(void)
+void test_containers(void)
 {
-	size_t i, len;
-	const char *input;
-	struct json_value want;
-	struct json_parse_result got;
-	struct {
-		const char *input;
-		struct json_value want;
-	} tests[] = {
-		{ "0", json_value_number(0) },
-		{ "5", json_value_number(5) },
-		{ "55", json_value_number(55) },
-		{ "143", json_value_number(143) },
-		{ "  143  ", json_value_number(143) },
-		{ "\n\t143\n\n ", json_value_number(143) },
+	struct json_value empty = json_array();
 
-		/* strings */
-		{ "\"\"", json_value_string("") }
-	};
-	
-	len = sizeof tests / sizeof tests[0];
+	if (empty.length != 0) {
+		printf("empty array isn't empty");
+	}
 
-	for (i = 0; i < len; i++) {
-		input = tests[i].input;
-		want = tests[i].want;
+	if (empty.max != 0) {
+		printf("empty array max isn't 0");
+	}
 
-		printf("\"%s\" should give <%s>: ", input, json_value_stringify(want));
+	if (empty.children != NULL) {
+		printf("empty array data isn't NULL");
+	}
 
-		got = json_parse(input);
+	json_array_add(&empty, json_true);
 
-		if (got.error != NULL) {
-			printf("got error: \"%s\"", got.error);
-		} else if (!json_values_equal(want, got.value)) {
-			printf("got <%s>", json_value_stringify(got.value));
-		} else {
-			printf("OK");
-		}
+	if (empty.length != 1) {
+		printf("Array length should be 1 after adding element\n");
+	}
 
-		printf("\n");
+	struct json_value got = json_array_get(empty, 0);
+	if (!json_equal(got, json_true)) {
+		printf("Retrieved element is different to 'true': %s", json_stringify(got));
 	}
 }
 
-void test_json_values_equal()
+void check(struct json_value value, char *want)
 {
-	bool got, want;
-	size_t i, len;
-	const char *dummy_string = "hello";
-	struct json_value a, b;
-	struct {
-		struct json_value a;
-		struct json_value b;
-		bool want;
-	} tests[] = {
-		{ json_value_number(10), json_value_number(10), true },
-		{ json_value_number(10), json_value_number(11), false },
-		{ json_value_number(10), json_value_string("hello"), false },
-		{ json_value_number(0), json_value_string(NULL), false },
-		{ json_value_string(dummy_string), json_value_string(strdup(dummy_string)), true },
-	};
-
-	len = sizeof tests / sizeof tests[0];
-
-	for (i = 0; i < len; i++) {
-		a = tests[i].a;
-		b = tests[i].b;
-		want = tests[i].want;
-		
-		printf("json_values_equal(%s, %s) should return %i: ",
-		       json_value_stringify(a),
-		       json_value_stringify(b),
-		       want);
-
-		got = json_values_equal(a, b);
-		if (got != want) {
-			printf("got %i", got);
-		} else {
-			printf("OK");
-		}
-
-		printf("\n");
+	char *got = json_stringify(value);
+	if (strcmp(got, want) != 0) {
+		printf("String is different: %s gives %s\n", want, got);
 	}
 }
 
-static struct {
-	void (*fn)(void);
-	char const *name;
-} tests[] = {
-	{ test_json_basics, "JSON Basics" },
-	{ test_json_values_equal, "JSON Value Equality" }
-};
+struct json_value make_person(char *name, int age)
+{
+	struct json_value person = json_object();
+	json_object_add(&person, "name", json_string(name));
+	json_object_add(&person, "age", json_number(age));
+	return person;
+}
+
+void test_stringify(void)
+{
+	struct json_value array = json_array();
+	json_array_add(&array, json_true);
+
+	check(array, "[true]");
+	json_array_add(&array, json_false);
+	check(array, "[true, false]");
+
+	struct json_value object = json_object();
+	check(object, "{}");
+	json_object_add(&object, "a", json_true);
+	check(object, "{\"a\": true}");
+
+	struct json_value family = json_array();
+	json_array_add(&family, make_person("David", 20));
+	json_array_add(&family, make_person("Eve", 40));
+
+	check(family, "[{\"name\": \"David\", \"age\": 20}, {\"name\": \"Eve\", \"age\": 40}]");
+}
 
 int main(void)
 {
-	size_t i, len;
+	test_containers();
+	test_stringify();
 
-	len = sizeof tests / sizeof tests[0];
+	struct json_value array_with_true = json_array();
+	json_array_add(&array_with_true, json_true);
 
-	for (i = 0; i < len; i++) {
-		printf("=== TEST: %s\n", tests[i].name);
-		tests[i].fn();
-		printf("\n");
+	struct test {
+		char *input;
+		struct json_value want;
+	} tests[] = {
+		{ "1", json_number(1) },
+		{ "11", json_number(11) },
+		{ "\"hello\"", json_string("hello") },
+		{ "\"\"", json_string("") },
+		{ "true", json_true },
+		{ "false", json_false },
+		{ "null", json_null },
+		{ "[]", json_array() },
+		{ "{}", json_object() },
+		{ "[true]", array_with_true },
+		{ "{\"name\": \"David\", \"age\": 20}", make_person("David", 20) },
+		{ "{\"age\": 20, \"name\": \"David\"}", make_person("David", 20) }
+	};
+
+	for (int i = 0; i < sizeof tests / sizeof tests[0]; i++) {
+		struct test test = tests[i];
+
+		printf("=== Test no. %i: '%s'--> <%s>\n",
+			i + 1,
+			test.input,
+			json_stringify(test.want));
+
+		struct json_parse_result got = json_parse(test.input);
+		if (got.error != NULL) {
+			printf("Err: '%s'; line %i col %i\n", got.error, got.line_number, got.column);
+			continue;
+		}
+
+		if (!json_equal(test.want, got.value)) {
+			printf("Not equal, got '%s'\n", json_stringify(got.value));
+		}
 	}
 }

@@ -1,4 +1,4 @@
-FLAGS = -Wall -Wextra -pedantic -std=c23
+FLAGS = -Wall -Wextra -pedantic -std=c2x
 
 json.o: json.c
 	cc json.c -c -o json.o $(FLAGS)
